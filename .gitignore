@@ -1,0 +1,18 @@
+# OS / editor junk
+.DS_Store
+*.swp
+*.bak
+*~
+
+# Logs
+*.log
+
+# Local test artifacts
+/tmp/
+*.tmp
+
+# Server-generated data (never commit real account databases/credentials)
+byteroot-info.txt
+db/
+*.pem
+*.key
