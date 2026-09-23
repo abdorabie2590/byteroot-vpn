@@ -3,8 +3,8 @@
 #  ByteRoot VPN Multi-Protocol Installer
 #  Dev. Eng Abdelrahman Rabie | Telegram: @PacketBreaker
 #  Supports: OpenSSH, SSH-Websocket, SSH-Stunnel(SSL/TLS), BadVPN(UDPGW),
-#            Nginx, Vmess/Vless/Trojan (WS+TLS / WS NoTLS)
-#  Tested on: Ubuntu 20.04 / 22.04 / 24.04
+#            Nginx, Vmess/Vless/Trojan (WS+TLS / WS NoTLS) via Xray-core
+#  OS: Ubuntu 22 - 26 | Debian 10+   |   Arch: x86_64 / arm64 (Oracle A1)
 # =====================================================================
 set -e
 
@@ -30,10 +30,10 @@ echo "======================================================="
 banner
 
 # ---------------------------------------------------------------
-# 0) Root & OS check
+# 0) Root & OS / Arch check
 # ---------------------------------------------------------------
 if [ "$(id -u)" != "0" ]; then
-  echo -e "${RED}[!] لازم تشغل السكربت بصلاحيات root (sudo -i)${NC}"
+  echo -e "${RED}[!] Please run this script as root (sudo -i)${NC}"
   exit 1
 fi
 
@@ -42,19 +42,19 @@ OS_ID="$ID"
 ARCH_RAW=$(uname -m)
 
 if [[ "$OS_ID" != "ubuntu" && "$OS_ID" != "debian" ]]; then
-  echo -e "${RED}[!] السكربت مخصص لأنظمة Ubuntu / Debian فقط${NC}"
+  echo -e "${RED}[!] This script only supports Ubuntu / Debian${NC}"
   exit 1
 fi
 
 case "$ARCH_RAW" in
   x86_64|amd64)  ARCH_LABEL="x86_64 (amd64)" ;;
-  aarch64|arm64) ARCH_LABEL="arm64/aarch64 (Oracle A1 / Ampere متوافق)" ;;
+  aarch64|arm64) ARCH_LABEL="arm64/aarch64 (Oracle A1 / Ampere compatible)" ;;
   *) ARCH_LABEL="$ARCH_RAW" ;;
 esac
 
-echo -e "${GREEN}[i] النظام المكتشف : $PRETTY_NAME"
-echo -e "[i] المعمارية       : $ARCH_LABEL${NC}"
-echo -e "${CYAN}[i] السكربت يدعم Ubuntu 22-26 و Debian 10 وما بعده، ومعماريات x86_64 و arm64 (Oracle A1 Always Free).${NC}"
+echo -e "${GREEN}[i] Detected OS   : $PRETTY_NAME"
+echo -e "[i] Architecture  : $ARCH_LABEL${NC}"
+echo -e "${CYAN}[i] Supports Ubuntu 22-26 and Debian 10+, on x86_64 and arm64 (Oracle A1 Always Free).${NC}"
 sleep 1
 
 mkdir -p /etc/byteroot
@@ -66,22 +66,22 @@ echo "=====================================================" >> "$INFO_FILE"
 # ---------------------------------------------------------------
 # 1) Ask for Domain
 # ---------------------------------------------------------------
-read -rp $'\n'"${CYAN}[?] ادخل الدومين الخاص بيك (مثال: vpn.example.com): ${NC}" DOMAIN
+read -rp $'\n'"${CYAN}[?] Enter your domain (example: vpn.example.com): ${NC}" DOMAIN
 if [ -z "$DOMAIN" ]; then
-  echo -e "${RED}[!] لازم تدخل دومين${NC}"; exit 1
+  echo -e "${RED}[!] A domain is required${NC}"; exit 1
 fi
 
 SERVER_IP=$(curl -s -4 ifconfig.me || curl -s -4 icanhazip.com)
 DOMAIN_IP=$(getent ahostsv4 "$DOMAIN" | awk '{print $1; exit}')
 
-echo -e "${YELLOW}[i] IP السيرفر: $SERVER_IP"
-echo -e "[i] IP الدومين : $DOMAIN_IP${NC}"
+echo -e "${YELLOW}[i] Server IP: $SERVER_IP"
+echo -e "[i] Domain IP: $DOMAIN_IP${NC}"
 
 if [ "$SERVER_IP" != "$DOMAIN_IP" ]; then
-  echo -e "${RED}[!] تحذير: الدومين لسه مش موجه (A Record) على IP السيرفر.${NC}"
-  read -rp "هل تريد المتابعة رغم ذلك؟ (y/n): " CONT
+  echo -e "${RED}[!] Warning: this domain does not currently point (A Record) to this server's IP.${NC}"
+  read -rp "Continue anyway? (y/n): " CONT
   if [ "$CONT" != "y" ]; then
-    echo "قم بتوجيه A Record للدومين ناحية $SERVER_IP ثم أعد تشغيل السكربت."
+    echo "Point the domain's A Record to $SERVER_IP then re-run this script."
     exit 1
   fi
 fi
@@ -95,7 +95,7 @@ touch /etc/byteroot/db/ssh.db /etc/byteroot/db/vmess.db /etc/byteroot/db/vless.d
 # ---------------------------------------------------------------
 # 2) Base packages
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] تحديث النظام وتثبيت الحزم الأساسية...${NC}"
+echo -e "${CYAN}[+] Updating system and installing base packages...${NC}"
 export DEBIAN_FRONTEND=noninteractive
 apt update -y && apt upgrade -y
 apt install -y curl wget socat cron unzip git jq ufw \
@@ -108,7 +108,7 @@ systemctl start cron
 # ---------------------------------------------------------------
 # 3) Firewall
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] إعداد الجدار الناري (UFW)...${NC}"
+echo -e "${CYAN}[+] Configuring firewall (UFW)...${NC}"
 ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 81/tcp
@@ -122,7 +122,7 @@ ufw --force enable
 # ---------------------------------------------------------------
 # 4) SSH banner
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] إعداد OpenSSH...${NC}"
+echo -e "${CYAN}[+] Configuring OpenSSH...${NC}"
 cat > /etc/issue.net <<EOF
 ======================================
    Welcome to ByteRoot VPN Server
@@ -137,13 +137,13 @@ systemctl restart ssh || systemctl restart sshd
 # ---------------------------------------------------------------
 # 5) SSL certificate (Let's Encrypt) - standalone, needs port 80 free
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] إصدار شهادة SSL للدومين $DOMAIN ...${NC}"
+echo -e "${CYAN}[+] Issuing SSL certificate for $DOMAIN ...${NC}"
 systemctl stop nginx 2>/dev/null || true
 fuser -k 80/tcp 2>/dev/null || true
 
 certbot certonly --standalone --non-interactive --agree-tos \
   -m admin@"$DOMAIN" -d "$DOMAIN" || {
-    echo -e "${RED}[!] فشل إصدار الشهادة عبر Let's Encrypt، سيتم توليد شهادة ذاتية التوقيع بدلاً منها.${NC}"
+    echo -e "${RED}[!] Let's Encrypt issuance failed, generating a self-signed certificate instead.${NC}"
     mkdir -p /etc/letsencrypt/live/"$DOMAIN"
     openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
       -keyout /etc/letsencrypt/live/"$DOMAIN"/privkey.pem \
@@ -153,19 +153,19 @@ certbot certonly --standalone --non-interactive --agree-tos \
 
 CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
 
-# Renewal hook to reload services after cert renewal
 cat > /etc/letsencrypt/renewal-hooks/deploy/byteroot-reload.sh <<EOF
 #!/bin/bash
 systemctl reload nginx
 systemctl restart stunnel4
 systemctl restart xray
+systemctl restart haproxy
 EOF
 chmod +x /etc/letsencrypt/renewal-hooks/deploy/byteroot-reload.sh
 
 # ---------------------------------------------------------------
-# 6) Install Xray-core (Vmess / Vless / Trojan)
+# 6) Install Xray-core (Vmess / Vless / Trojan) + Stats API
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] تثبيت Xray-core ...${NC}"
+echo -e "${CYAN}[+] Installing Xray-core ...${NC}"
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
 UUID_VMESS=$(cat /proc/sys/kernel/random/uuid)
@@ -190,9 +190,9 @@ cat > /usr/local/etc/xray/config.json <<EOF
     {
       "tag": "vmess-ws",
       "listen": "127.0.0.1",
-      "port": 10001,
+      "port": 4431,
       "protocol": "vmess",
-      "settings": { "clients": [ { "id": "$UUID_VMESS", "alterId": 0 } ] },
+      "settings": { "clients": [ { "id": "$UUID_VMESS", "alterId": 0, "email": "default-vmess" } ] },
       "streamSettings": {
         "network": "ws",
         "wsSettings": { "path": "/vmess" }
@@ -201,9 +201,9 @@ cat > /usr/local/etc/xray/config.json <<EOF
     {
       "tag": "vless-ws",
       "listen": "127.0.0.1",
-      "port": 10002,
+      "port": 4432,
       "protocol": "vless",
-      "settings": { "clients": [ { "id": "$UUID_VLESS" } ], "decryption": "none" },
+      "settings": { "clients": [ { "id": "$UUID_VLESS", "email": "default-vless" } ], "decryption": "none" },
       "streamSettings": {
         "network": "ws",
         "wsSettings": { "path": "/vless" }
@@ -212,9 +212,9 @@ cat > /usr/local/etc/xray/config.json <<EOF
     {
       "tag": "trojan-ws",
       "listen": "127.0.0.1",
-      "port": 10003,
+      "port": 4433,
       "protocol": "trojan",
-      "settings": { "clients": [ { "password": "$TROJAN_PASS" } ] },
+      "settings": { "clients": [ { "password": "$TROJAN_PASS", "email": "default-trojan" } ] },
       "streamSettings": {
         "network": "ws",
         "wsSettings": { "path": "/trojan" }
@@ -230,17 +230,18 @@ systemctl restart xray
 
 {
 echo ""
-echo "----------------- Vmess / Vless / Trojan -----------------"
+echo "----------------- Vmess / Vless / Trojan (default accounts) -----------------"
 echo "Domain      : $DOMAIN"
-echo "Vmess  UUID : $UUID_VMESS   | Path: /vmess | Ports: 80 (NoTLS) / 443 (TLS)"
-echo "Vless  UUID : $UUID_VLESS   | Path: /vless | Ports: 80 (NoTLS) / 443 (TLS)"
-echo "Trojan Pass : $TROJAN_PASS  | Path: /trojan| Ports: 80 (NoTLS) / 443 (TLS)"
+echo "Vmess  UUID : $UUID_VMESS   | Path: /vmess | Local: 127.0.0.1:4431 | Ports: 80 (NoTLS) / 443 (TLS)"
+echo "Vless  UUID : $UUID_VLESS   | Path: /vless | Local: 127.0.0.1:4432 | Ports: 80 (NoTLS) / 443 (TLS)"
+echo "Trojan Pass : $TROJAN_PASS  | Path: /trojan| Local: 127.0.0.1:4433 | Ports: 80 (NoTLS) / 443 (TLS)"
+echo "Use the 'byteroot' panel -> option 9 to see these as ready-to-import links."
 } >> "$INFO_FILE"
 
 # ---------------------------------------------------------------
 # 7) SSH - Websocket proxy (python) -> local SSH:22
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] تجهيز SSH Websocket Proxy ...${NC}"
+echo -e "${CYAN}[+] Setting up SSH Websocket Proxy ...${NC}"
 mkdir -p /etc/byteroot
 cat > /etc/byteroot/ws-ssh-proxy.py <<'PYEOF'
 #!/usr/bin/env python3
@@ -291,7 +292,6 @@ if __name__ == "__main__":
 PYEOF
 chmod +x /etc/byteroot/ws-ssh-proxy.py
 
-# internal instance (used by nginx on 80/81 as default backend)
 cat > /etc/systemd/system/byteroot-wsssh-internal.service <<EOF
 [Unit]
 Description=ByteRoot SSH-WS Proxy (internal, backend for nginx)
@@ -303,7 +303,6 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# direct instance on 8080
 cat > /etc/systemd/system/byteroot-wsssh-8080.service <<EOF
 [Unit]
 Description=ByteRoot SSH-WS Proxy (direct, port 8080)
@@ -320,9 +319,9 @@ systemctl enable byteroot-wsssh-internal byteroot-wsssh-8080
 systemctl restart byteroot-wsssh-internal byteroot-wsssh-8080
 
 # ---------------------------------------------------------------
-# 8) Stunnel (SSL wrapper for SSH) - port 442
+# 8) Stunnel (SSL wrapper for SSH) - port 442 (direct) + 445 (internal, via HAProxy on 443)
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] إعداد Stunnel (SSH SSL/TLS) على المنفذ 442 ...${NC}"
+echo -e "${CYAN}[+] Configuring Stunnel (SSH SSL/TLS) on port 442 ...${NC}"
 cat "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem" > /etc/stunnel/stunnel.pem
 
 cat > /etc/stunnel/stunnel.conf <<EOF
@@ -350,7 +349,7 @@ systemctl restart stunnel4
 # ---------------------------------------------------------------
 # 9) BadVPN (UDPGW) - ports 7100-7900
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] تثبيت BadVPN UDPGW ...${NC}"
+echo -e "${CYAN}[+] Installing BadVPN UDPGW ...${NC}"
 if [ ! -f /usr/bin/badvpn-udpgw ]; then
   apt install -y cmake > /dev/null 2>&1
   cd /root
@@ -377,17 +376,16 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
 
-# start a spread of instances across the requested range 7100-7900
 for p in 7100 7200 7300 7400 7500 7600 7700 7800 7900; do
   systemctl enable badvpn-udpgw@"$p" > /dev/null 2>&1
   systemctl restart badvpn-udpgw@"$p" > /dev/null 2>&1
 done
-echo "BadVPN active ports: 7100,7200,7300,7400,7500,7600,7700,7800,7900 (range 7100-7900 available via: systemctl start badvpn-udpgw@<port>)" >> "$INFO_FILE"
+echo "BadVPN active ports: 7100,7200,7300,7400,7500,7600,7700,7800,7900 (full range 7100-7900 available via: systemctl start badvpn-udpgw@<port>)" >> "$INFO_FILE"
 
 # ---------------------------------------------------------------
-# 10) Nginx - reverse proxy for 80 / 81 / 443
+# 10) Nginx - reverse proxy for 80 / 81 / 443(internal)
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] إعداد Nginx (80 / 81 / 443) ...${NC}"
+echo -e "${CYAN}[+] Configuring Nginx (80 / 81 / internal 443) ...${NC}"
 
 cat > /etc/nginx/conf.d/byteroot.conf <<EOF
 map \$http_upgrade \$connection_upgrade {
@@ -402,21 +400,21 @@ server {
     server_name $DOMAIN;
 
     location /vmess {
-        proxy_pass http://127.0.0.1:10001;
+        proxy_pass http://127.0.0.1:4431;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
         proxy_set_header Host \$host;
     }
     location /vless {
-        proxy_pass http://127.0.0.1:10002;
+        proxy_pass http://127.0.0.1:4432;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
         proxy_set_header Host \$host;
     }
     location /trojan {
-        proxy_pass http://127.0.0.1:10003;
+        proxy_pass http://127.0.0.1:4433;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
@@ -431,15 +429,15 @@ server {
     }
 }
 
-# ---- Port 81 : mirror of 80 (as requested) ----
+# ---- Port 81 : mirror of 80 ----
 server {
     listen 81;
     listen [::]:81;
     server_name $DOMAIN;
 
-    location /vmess { proxy_pass http://127.0.0.1:10001; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection \$connection_upgrade; proxy_set_header Host \$host; }
-    location /vless { proxy_pass http://127.0.0.1:10002; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection \$connection_upgrade; proxy_set_header Host \$host; }
-    location /trojan { proxy_pass http://127.0.0.1:10003; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection \$connection_upgrade; proxy_set_header Host \$host; }
+    location /vmess { proxy_pass http://127.0.0.1:4431; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection \$connection_upgrade; proxy_set_header Host \$host; }
+    location /vless { proxy_pass http://127.0.0.1:4432; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection \$connection_upgrade; proxy_set_header Host \$host; }
+    location /trojan { proxy_pass http://127.0.0.1:4433; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection \$connection_upgrade; proxy_set_header Host \$host; }
     location / { proxy_pass http://127.0.0.1:8880; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection \$connection_upgrade; proxy_set_header Host \$host; }
 }
 
@@ -453,21 +451,21 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
 
     location /vmess {
-        proxy_pass http://127.0.0.1:10001;
+        proxy_pass http://127.0.0.1:4431;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
         proxy_set_header Host \$host;
     }
     location /vless {
-        proxy_pass http://127.0.0.1:10002;
+        proxy_pass http://127.0.0.1:4432;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
         proxy_set_header Host \$host;
     }
     location /trojan {
-        proxy_pass http://127.0.0.1:10003;
+        proxy_pass http://127.0.0.1:4433;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
@@ -479,7 +477,6 @@ server {
 }
 EOF
 
-# remove default site to avoid port clash
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
 
 nginx -t
@@ -490,7 +487,7 @@ systemctl restart nginx
 # 10.5) HAProxy - shares public port 443 between Nginx(WS-TLS) & Stunnel(SSH-SSL)
 #       by inspecting the TLS SNI (no decryption needed).
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] إعداد HAProxy لمشاركة المنفذ 443 بين Nginx و Stunnel ...${NC}"
+echo -e "${CYAN}[+] Configuring HAProxy to share port 443 between Nginx and Stunnel ...${NC}"
 
 cat > /etc/haproxy/haproxy.cfg <<EOF
 global
@@ -511,7 +508,7 @@ frontend ft_443
     tcp-request inspect-delay 5s
     tcp-request content accept if { req.ssl_hello_type 1 }
 
-    # traffic whose SNI matches our domain -> Nginx (Vmess/Vless/Trojan TLS)
+    # SNI matches our domain -> Nginx (Vmess/Vless/Trojan TLS)
     use_backend bk_nginx_tls if { req.ssl_sni -i $DOMAIN }
 
     # anything else (no SNI / different SNI, typical of SSH-SSL clients) -> Stunnel
@@ -532,7 +529,7 @@ systemctl restart haproxy
 # ---------------------------------------------------------------
 # 11) ByteRoot Enforcement Engine (expiry + quota + connection limits)
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] إعداد محرك المراقبة والقيود (الصلاحية / الباقات / الاتصالات) ...${NC}"
+echo -e "${CYAN}[+] Setting up the enforcement engine (expiry / quota / connection limits) ...${NC}"
 
 cat > /etc/byteroot/scripts/enforce.sh <<'ENFEOF'
 #!/bin/bash
@@ -644,7 +641,7 @@ chmod +x /etc/byteroot/scripts/conn_limit.sh
 # ---------------------------------------------------------------
 # 12) ByteRoot Management Panel (/usr/local/bin/byteroot)
 # ---------------------------------------------------------------
-echo -e "${CYAN}[+] تثبيت لوحة التحكم ByteRoot ...${NC}"
+echo -e "${CYAN}[+] Installing the ByteRoot management panel ...${NC}"
 
 cat > /usr/local/bin/byteroot <<'MENUEOF'
 #!/bin/bash
@@ -664,7 +661,7 @@ INFO_FILE=/root/byteroot-info.txt
 
 RED='\e[91m'; GREEN='\e[92m'; YELLOW='\e[93m'; CYAN='\e[96m'; MAGENTA='\e[95m'; BOLD='\e[1m'; NC='\e[0m'
 
-pause(){ read -rp $'\n'"اضغط Enter للعودة..." _; }
+pause(){ read -rp $'\n'"Press Enter to go back..." _; }
 count_db(){ [ -f "$1" ] && grep -vc '^[[:space:]]*$' "$1" 2>/dev/null || echo 0; }
 
 online_ssh_count(){
@@ -686,29 +683,29 @@ echo -e "${NC}"
 echo -e "${YELLOW}${BOLD}            ByteRoot VPN Management Panel${NC}"
 echo -e "${MAGENTA}     Dev. Eng Abdelrahman Rabie   |   Telegram: @PacketBreaker${NC}"
 echo -e "${CYAN}=====================================================================${NC}"
-echo -e "${GREEN} الوقت والتاريخ : $(date '+%Y-%m-%d  %H:%M:%S')${NC}"
-echo -e " الدومين        : ${DOMAIN:-غير محدد}"
-if [ -f /etc/os-release ]; then . /etc/os-release; echo " النظام          : $PRETTY_NAME | $(uname -m)"; fi
+echo -e "${GREEN} Date & Time     : $(date '+%Y-%m-%d  %H:%M:%S')${NC}"
+echo -e " Domain          : ${DOMAIN:-not set}"
+if [ -f /etc/os-release ]; then . /etc/os-release; echo " OS / Arch       : $PRETTY_NAME | $(uname -m)"; fi
 echo -e "${CYAN}---------------------------------------------------------------------${NC}"
-echo -e " المتصلين الآن (SSH)      : ${YELLOW}$(online_ssh_count)${NC}"
-echo -e " حسابات SSH                : ${GREEN}$(count_db "$SSH_DB")${NC}"
-echo -e " حسابات Vmess              : ${GREEN}$(count_db "$VMESS_DB")${NC}"
-echo -e " حسابات Vless              : ${GREEN}$(count_db "$VLESS_DB")${NC}"
-echo -e " حسابات Trojan             : ${GREEN}$(count_db "$TROJAN_DB")${NC}"
+echo -e " Online now (SSH)          : ${YELLOW}$(online_ssh_count)${NC}"
+echo -e " SSH accounts              : ${GREEN}$(count_db "$SSH_DB")${NC}"
+echo -e " Vmess accounts            : ${GREEN}$(count_db "$VMESS_DB")${NC}"
+echo -e " Vless accounts            : ${GREEN}$(count_db "$VLESS_DB")${NC}"
+echo -e " Trojan accounts           : ${GREEN}$(count_db "$TROJAN_DB")${NC}"
 echo -e "${CYAN}=====================================================================${NC}"
 }
 
 ask_limits(){
   # sets global vars: TYPE MAXCONN QUOTA DAYS
-  echo " 1) حساب حر Unlimited (بدون أي قيود)"
-  echo " 2) حساب محدود Limited (اتصالات / GB / أيام)"
-  read -rp " اختر نوع الحساب: " t
+  echo " 1) Unlimited (Free) account - no restrictions"
+  echo " 2) Limited account (connections / GB / days)"
+  read -rp " Choose account type: " t
   MAXCONN=0; QUOTA=0; DAYS=0; TYPE="unlimited"
   if [ "$t" == "2" ]; then
     TYPE="limited"
-    read -rp " أقصى عدد اتصالات متزامنة (0 = بدون حد): " MAXCONN
-    read -rp " الباقة بالـ GB (0 = بدون حد): " QUOTA
-    read -rp " عدد أيام الصلاحية (0 = بدون انتهاء): " DAYS
+    read -rp " Max concurrent connections (0 = unlimited): " MAXCONN
+    read -rp " Data quota in GB (0 = unlimited): " QUOTA
+    read -rp " Expiry in days (0 = never expires): " DAYS
     [ -z "$MAXCONN" ] && MAXCONN=0
     [ -z "$QUOTA" ] && QUOTA=0
     [ -z "$DAYS" ] && DAYS=0
@@ -717,10 +714,10 @@ ask_limits(){
 
 # ---------------- SSH ----------------
 create_ssh_account(){
-  banner; echo -e "${BOLD}--- 1) إنشاء حساب SSH جديد ---${NC}"
-  read -rp " اسم المستخدم: " uname
-  if [ -z "$uname" ] || id "$uname" &>/dev/null; then echo -e "${RED}اسم غير صالح أو مستخدم بالفعل${NC}"; pause; return; fi
-  read -rp " الباسورد (فارغ = توليد تلقائي): " pass
+  banner; echo -e "${BOLD}--- 1) Create New SSH Account ---${NC}"
+  read -rp " Username: " uname
+  if [ -z "$uname" ] || id "$uname" &>/dev/null; then echo -e "${RED}Invalid or already exists${NC}"; pause; return; fi
+  read -rp " Password (blank = auto-generate): " pass
   [ -z "$pass" ] && pass=$(openssl rand -base64 9)
   ask_limits
 
@@ -749,7 +746,7 @@ create_ssh_account(){
   echo "$uname|$TYPE|$MAXCONN|$QUOTA|$expiry|$(date +%Y-%m-%d)|active" >> "$SSH_DB"
 
   banner
-  echo -e "${GREEN}تم إنشاء حساب SSH بنجاح ✅${NC}"
+  echo -e "${GREEN}SSH account created successfully ✅${NC}"
   echo "-----------------------------------"
   echo " Username : $uname"
   echo " Password : $pass"
@@ -761,7 +758,7 @@ create_ssh_account(){
 }
 
 list_ssh_accounts(){
-  banner; echo -e "${BOLD}--- قائمة حسابات SSH ---${NC}"
+  banner; echo -e "${BOLD}--- SSH Accounts List ---${NC}"
   printf "%-15s %-10s %-6s %-6s %-12s %-10s\n" "Username" "Type" "Conn" "GB" "Expiry" "Status"
   echo "----------------------------------------------------------------------"
   [ -s "$SSH_DB" ] && while IFS='|' read -r u t m q e c s; do
@@ -774,28 +771,28 @@ list_ssh_accounts(){
 }
 
 delete_ssh_account(){
-  banner; echo -e "${BOLD}--- حذف حساب SSH ---${NC}"
-  read -rp " اسم المستخدم للحذف: " uname
-  if ! id "$uname" &>/dev/null; then echo -e "${RED}غير موجود${NC}"; pause; return; fi
+  banner; echo -e "${BOLD}--- Delete SSH Account ---${NC}"
+  read -rp " Username to delete: " uname
+  if ! id "$uname" &>/dev/null; then echo -e "${RED}Not found${NC}"; pause; return; fi
   userdel -rf "$uname" 2>/dev/null
   iptables -F "br_$uname" 2>/dev/null; iptables -D OUTPUT -m owner --uid-owner "$(id -u "$uname" 2>/dev/null)" -j "br_$uname" 2>/dev/null; iptables -X "br_$uname" 2>/dev/null
   sed -i "/^$uname /d" /etc/security/limits.d/byteroot.conf 2>/dev/null
   sed -i "/^$uname|/d" "$SSH_DB"
-  echo -e "${GREEN}تم حذف الحساب${NC}"; pause
+  echo -e "${GREEN}Account deleted${NC}"; pause
 }
 
 lock_unlock_ssh(){
-  banner; echo -e "${BOLD}--- قفل / فتح حساب SSH ---${NC}"
-  read -rp " اسم المستخدم: " uname
-  if ! id "$uname" &>/dev/null; then echo -e "${RED}غير موجود${NC}"; pause; return; fi
-  echo " 1) قفل الحساب"; echo " 2) فتح الحساب"
-  read -rp " اختر: " a
+  banner; echo -e "${BOLD}--- Lock / Unlock SSH Account ---${NC}"
+  read -rp " Username: " uname
+  if ! id "$uname" &>/dev/null; then echo -e "${RED}Not found${NC}"; pause; return; fi
+  echo " 1) Lock account"; echo " 2) Unlock account"
+  read -rp " Choose: " a
   if [ "$a" == "1" ]; then
     usermod -L "$uname"; sed -i "s/^\($uname|.*|\)[^|]*$/\1locked/" "$SSH_DB"
-    echo -e "${YELLOW}تم قفل الحساب${NC}"
+    echo -e "${YELLOW}Account locked${NC}"
   else
     usermod -U "$uname"; sed -i "s/^\($uname|.*|\)[^|]*$/\1active/" "$SSH_DB"
-    echo -e "${GREEN}تم فتح الحساب${NC}"
+    echo -e "${GREEN}Account unlocked${NC}"
   fi
   pause
 }
@@ -803,13 +800,13 @@ lock_unlock_ssh(){
 ssh_menu(){
 while true; do
 banner
-echo -e "${BOLD} إدارة حسابات SSH${NC}"
-echo " 1) إنشاء حساب جديد"
-echo " 2) عرض كل الحسابات"
-echo " 3) حذف حساب"
-echo " 4) قفل / فتح حساب"
-echo " 0) رجوع"
-read -rp " اختر: " c
+echo -e "${BOLD} SSH Account Management${NC}"
+echo " 1) Create new account"
+echo " 2) List all accounts"
+echo " 3) Delete account"
+echo " 4) Lock / Unlock account"
+echo " 0) Back"
+read -rp " Choose: " c
 case $c in
   1) create_ssh_account ;;
   2) list_ssh_accounts ;;
@@ -824,13 +821,13 @@ done
 create_xray_account(){
   proto=$1
   case $proto in
-    vmess) tag="vmess-ws"; db="$VMESS_DB" ;;
-    vless) tag="vless-ws"; db="$VLESS_DB" ;;
-    trojan) tag="trojan-ws"; db="$TROJAN_DB" ;;
+    vmess) tag="vmess-ws"; db="$VMESS_DB"; localport=4431 ;;
+    vless) tag="vless-ws"; db="$VLESS_DB"; localport=4432 ;;
+    trojan) tag="trojan-ws"; db="$TROJAN_DB"; localport=4433 ;;
   esac
-  banner; echo -e "${BOLD}--- إنشاء حساب $proto جديد ---${NC}"
-  read -rp " اسم الحساب (Email/Label): " name
-  [ -z "$name" ] && { echo -e "${RED}اسم غير صالح${NC}"; pause; return; }
+  banner; echo -e "${BOLD}--- Create New $proto Account ---${NC}"
+  read -rp " Account name (email/label): " name
+  [ -z "$name" ] && { echo -e "${RED}Invalid name${NC}"; pause; return; }
   ask_limits
 
   if [ "$proto" == "trojan" ]; then
@@ -855,18 +852,48 @@ create_xray_account(){
   [ "$DAYS" != "0" ] && expiry=$(date -d "+$DAYS days" +%Y-%m-%d)
   echo "$name|$cred|$TYPE|$MAXCONN|$QUOTA|$expiry|$(date +%Y-%m-%d)|active" >> "$db"
 
+  print_account_links "$proto" "$name" "$cred"
+  [ "$TYPE" == "limited" ] && echo " Limits   : Conn(info)=$MAXCONN | Quota=${QUOTA}GB | Expiry=$expiry"
+  pause
+}
+
+# Build and print ready-to-import connection links (TLS on 443 + NoTLS on 80)
+print_account_links(){
+  proto=$1; name=$2; cred=$3
+  line="════════════════════════════════════════════════════════════"
+
+  case $proto in
+    vless)
+      link_tls="vless://${cred}@${DOMAIN}:443?path=/vless&security=tls&encryption=none&host=${DOMAIN}&type=ws&sni=${DOMAIN}#${name}"
+      link_notls="vless://${cred}@${DOMAIN}:80?path=/vless&security=none&encryption=none&host=${DOMAIN}&type=ws#${name}"
+      ;;
+    trojan)
+      link_tls="trojan://${cred}@${DOMAIN}:443?path=/trojan&security=tls&host=${DOMAIN}&type=ws&sni=${DOMAIN}#${name}"
+      link_notls="trojan://${cred}@${DOMAIN}:80?path=/trojan&security=none&host=${DOMAIN}&type=ws#${name}"
+      ;;
+    vmess)
+      json_tls=$(jq -nc --arg ps "$name" --arg add "$DOMAIN" --arg id "$cred" --arg host "$DOMAIN" \
+        '{v:"2",ps:$ps,add:$add,port:"443",id:$id,aid:"0",net:"ws",type:"none",host:$host,path:"/vmess",tls:"tls",sni:$host}')
+      json_notls=$(jq -nc --arg ps "$name" --arg add "$DOMAIN" --arg id "$cred" --arg host "$DOMAIN" \
+        '{v:"2",ps:$ps,add:$add,port:"80",id:$id,aid:"0",net:"ws",type:"none",host:$host,path:"/vmess",tls:""}')
+      link_tls="vmess://$(echo -n "$json_tls" | base64 -w0)"
+      link_notls="vmess://$(echo -n "$json_notls" | base64 -w0)"
+      ;;
+  esac
+
   banner
-  echo -e "${GREEN}تم إنشاء حساب $proto بنجاح ✅${NC}"
-  echo "-----------------------------------"
+  echo -e "${GREEN}${BOLD}$proto account created successfully ✅${NC}"
   echo " Name     : $name"
   if [ "$proto" == "trojan" ]; then echo " Password : $cred"; else echo " UUID     : $cred"; fi
   echo " Domain   : $DOMAIN"
-  echo " Path     : /$proto"
-  echo " Network  : ws"
-  echo " Ports    : 443 (TLS, SNI=$DOMAIN) | 80 (No TLS)"
-  echo " Type     : $TYPE"
-  [ "$TYPE" == "limited" ] && echo " Limits   : Conn(info)=$MAXCONN | Quota=${QUOTA}GB | Expiry=$expiry"
-  pause
+  echo ""
+  echo -e "${CYAN}$line${NC}"
+  echo " WS TLS 443     :"
+  echo "$link_tls"
+  echo -e "${CYAN}$line${NC}"
+  echo " WS NoTLS 80    :"
+  echo "$link_notls"
+  echo -e "${CYAN}$line${NC}"
 }
 
 list_xray_accounts(){
@@ -874,13 +901,28 @@ list_xray_accounts(){
   case $proto in
     vmess) db="$VMESS_DB" ;; vless) db="$VLESS_DB" ;; trojan) db="$TROJAN_DB" ;;
   esac
-  banner; echo -e "${BOLD}--- قائمة حسابات $proto ---${NC}"
+  banner; echo -e "${BOLD}--- $proto Accounts List ---${NC}"
   printf "%-18s %-10s %-6s %-12s %-10s\n" "Name" "Type" "GB" "Expiry" "Status"
   echo "----------------------------------------------------------------------"
   [ -s "$db" ] && while IFS='|' read -r n cr t m q e c s; do
     [ -z "$n" ] && continue
     printf "%-18s %-10s %-6s %-12s %-10s\n" "$n" "$t" "$q" "$e" "$s"
   done < "$db"
+  echo ""
+  echo " Tip: use 'Show links' to re-print the import links for an existing account."
+  pause
+}
+
+show_links_menu(){
+  proto=$1
+  case $proto in
+    vmess) db="$VMESS_DB" ;; vless) db="$VLESS_DB" ;; trojan) db="$TROJAN_DB" ;;
+  esac
+  banner; echo -e "${BOLD}--- Show Links for an Existing $proto Account ---${NC}"
+  read -rp " Account name: " name
+  cred=$(awk -F'|' -v n="$name" '$1==n{print $2; exit}' "$db")
+  if [ -z "$cred" ]; then echo -e "${RED}Not found${NC}"; pause; return; fi
+  print_account_links "$proto" "$name" "$cred"
   pause
 }
 
@@ -891,33 +933,35 @@ delete_xray_account(){
     vless) tag="vless-ws"; db="$VLESS_DB" ;;
     trojan) tag="trojan-ws"; db="$TROJAN_DB" ;;
   esac
-  banner; echo -e "${BOLD}--- حذف حساب $proto ---${NC}"
-  read -rp " اسم الحساب: " name
+  banner; echo -e "${BOLD}--- Delete $proto Account ---${NC}"
+  read -rp " Account name: " name
   cred=$(awk -F'|' -v n="$name" '$1==n{print $2; exit}' "$db")
-  if [ -z "$cred" ]; then echo -e "${RED}غير موجود${NC}"; pause; return; fi
+  if [ -z "$cred" ]; then echo -e "${RED}Not found${NC}"; pause; return; fi
   tmp=$(mktemp)
   jq --arg tag "$tag" --arg id "$cred" \
     '(.inbounds[] | select(.tag==$tag) | .settings.clients) |= map(select((.id // "") != $id and (.password // "") != $id))' \
     "$XRAY_CONFIG" > "$tmp" && mv "$tmp" "$XRAY_CONFIG"
   systemctl restart xray
   sed -i "/^$name|/d" "$db"
-  echo -e "${GREEN}تم حذف الحساب${NC}"; pause
+  echo -e "${GREEN}Account deleted${NC}"; pause
 }
 
 xray_menu(){
 proto=$1
 while true; do
 banner
-echo -e "${BOLD} إدارة حسابات $proto${NC}"
-echo " 1) إنشاء حساب جديد"
-echo " 2) عرض كل الحسابات"
-echo " 3) حذف حساب"
-echo " 0) رجوع"
-read -rp " اختر: " c
+echo -e "${BOLD} $proto Account Management${NC}"
+echo " 1) Create new account"
+echo " 2) List all accounts"
+echo " 3) Delete account"
+echo " 4) Show import links for an existing account"
+echo " 0) Back"
+read -rp " Choose: " c
 case $c in
   1) create_xray_account "$proto" ;;
   2) list_xray_accounts "$proto" ;;
   3) delete_xray_account "$proto" ;;
+  4) show_links_menu "$proto" ;;
   0) return ;;
 esac
 done
@@ -925,11 +969,11 @@ done
 
 # ---------------- Live monitor ----------------
 live_online(){
-  echo -e "${YELLOW}اضغط q ثم Enter للخروج من الوضع اللحظي${NC}"; sleep 1
+  echo -e "${YELLOW}Press q then Enter to exit live mode${NC}"; sleep 1
   while true; do
     banner
-    echo -e "${BOLD} المتصلين الآن (تحديث كل 2 ثانية)${NC}"
-    echo " إجمالي اتصالات SSH النشطة : $(online_ssh_count)"
+    echo -e "${BOLD} Online Now (refreshes every 2 seconds)${NC}"
+    echo " Total active SSH connections : $(online_ssh_count)"
     echo ""
     ss -tn state established 2>/dev/null | awk '{print $4}' | grep -E ':(22|442|8080)$' | sort | uniq -c | sort -rn | head -n 15
     read -t 2 -n 1 key
@@ -939,7 +983,7 @@ live_online(){
 
 # ---------------- Usage monitor ----------------
 usage_menu(){
-  banner; echo -e "${BOLD}--- مراقبة استهلاك الباقات ---${NC}"
+  banner; echo -e "${BOLD}--- Quota Usage Monitor ---${NC}"
   echo -e "${CYAN}[SSH]${NC}"
   printf "%-15s %-10s\n" "Username" "Used(GB)"
   [ -s "$SSH_DB" ] && while IFS='|' read -r u t m q e c s; do
@@ -969,7 +1013,7 @@ SERVICES="ssh nginx haproxy stunnel4 xray cron"
 services_menu(){
 while true; do
 banner
-echo -e "${BOLD} حالة الخدمات${NC}"
+echo -e "${BOLD} Services Status${NC}"
 i=1
 declare -A idx_map
 for s in $SERVICES; do
@@ -980,49 +1024,49 @@ for s in $SERVICES; do
   i=$((i+1))
 done
 badcount=$(systemctl list-units --type=service --all 2>/dev/null | grep -c 'badvpn-udpgw@.*active')
-echo " ${i}) badvpn-udpgw (نشط على: $badcount منفذ)"
+echo " ${i}) badvpn-udpgw (active on: $badcount ports)"
 echo ""
-echo " r) إعادة تشغيل كل الخدمات"
-echo " 0) رجوع"
-read -rp " اختر رقم الخدمة لإعادة تشغيلها أو r أو 0: " c
+echo " r) Restart ALL services"
+echo " 0) Back"
+read -rp " Enter service number to restart, or r, or 0: " c
 if [ "$c" == "0" ]; then return; fi
 if [ "$c" == "r" ]; then
   for s in $SERVICES; do systemctl restart "$s"; done
   for p in 7100 7200 7300 7400 7500 7600 7700 7800 7900; do systemctl restart "badvpn-udpgw@$p" 2>/dev/null; done
-  echo -e "${GREEN}تم إعادة تشغيل جميع الخدمات${NC}"; pause
+  echo -e "${GREEN}All services restarted${NC}"; pause
 elif [ -n "${idx_map[$c]}" ]; then
   systemctl restart "${idx_map[$c]}"
-  echo -e "${GREEN}تم إعادة تشغيل ${idx_map[$c]}${NC}"; pause
+  echo -e "${GREEN}${idx_map[$c]} restarted${NC}"; pause
 fi
 done
 }
 
 clear_cache(){
-  banner; echo -e "${BOLD}--- تنظيف الكاش ---${NC}"
+  banner; echo -e "${BOLD}--- Clear Cache ---${NC}"
   apt-get clean -y >/dev/null 2>&1
   apt-get autoremove -y >/dev/null 2>&1
   journalctl --vacuum-time=3d >/dev/null 2>&1
   : > /var/log/xray/access.log 2>/dev/null
-  echo -e "${GREEN}تم تنظيف الكاش وسجلات النظام${NC}"
+  echo -e "${GREEN}Cache and system logs cleared${NC}"
   pause
 }
 
 main_menu(){
 while true; do
 banner
-echo -e "${BOLD} القائمة الرئيسية${NC}"
-echo " 1) إدارة حسابات SSH"
-echo " 2) إدارة حسابات Vmess"
-echo " 3) إدارة حسابات Vless"
-echo " 4) إدارة حسابات Trojan"
-echo " 5) المتصلين الآن (لحظي)"
-echo " 6) مراقبة استهلاك الباقات (GB)"
-echo " 7) حالة الخدمات / إعادة التشغيل"
-echo " 8) تنظيف الكاش"
-echo " 9) عرض تقرير السيرفر الكامل"
-echo " 0) خروج"
+echo -e "${BOLD} Main Menu${NC}"
+echo " 1)  SSH accounts management"
+echo " 2)  Vmess accounts management"
+echo " 3)  Vless accounts management"
+echo " 4)  Trojan accounts management"
+echo " 5)  Online now (live)"
+echo " 6)  Quota usage monitor (GB)"
+echo " 7)  Services status / restart"
+echo " 8)  Clear cache"
+echo " 9)  Show full server report"
+echo " 0)  Exit"
 echo -e "${CYAN}=====================================================================${NC}"
-read -rp " اختر رقم: " c
+read -rp " Choose: " c
 case $c in
   1) ssh_menu ;;
   2) xray_menu vmess ;;
@@ -1057,7 +1101,7 @@ echo ""
 echo "----------------- General -----------------"
 echo "OpenSSH              : 22"
 echo "SSH Websocket         : 80 , 8080  (default path on 80, direct on 8080)"
-echo "SSH Stunnel SSL/TLS   : 442  (direct)  AND  443 (shared via HAProxy)"
+echo "SSH Stunnel SSL/TLS   : 442 (direct)  AND  443 (shared via HAProxy)"
 echo "Badvpn UDPGW          : 7100-7900"
 echo "Nginx                 : 81"
 echo "Vmess WS TLS          : 443  path /vmess   (SNI must = $DOMAIN)"
@@ -1067,7 +1111,7 @@ echo "Vmess WS NoTLS        : 80   path /vmess"
 echo "Vless WS NoTLS        : 80   path /vless"
 echo "Trojan WS NoTLS       : 80   path /trojan"
 echo "============================================="
-echo "NOTE: Port 443 is now shared between Stunnel(SSH-SSL) and Nginx(Vmess/Vless/Trojan)"
+echo "NOTE: Port 443 is shared between Stunnel(SSH-SSL) and Nginx(Vmess/Vless/Trojan)"
 echo "      via HAProxy, which routes by TLS SNI:"
 echo "        - SNI = $DOMAIN            -> Nginx (Vmess/Vless/Trojan TLS)"
 echo "        - No SNI / different SNI   -> Stunnel (SSH-SSL)"
@@ -1078,14 +1122,14 @@ echo "Dev. Eng Abdelrahman Rabie | Telegram: @PacketBreaker - ByteRoot VPN"
 } >> "$INFO_FILE"
 
 banner
-echo -e "${GREEN}[✓] تم تثبيت وتشغيل جميع الخدمات بنجاح!${NC}"
+echo -e "${GREEN}[✓] All services installed and running successfully!${NC}"
 echo ""
 cat "$INFO_FILE"
 echo ""
-echo -e "${YELLOW}تم حفظ كل البيانات في: $INFO_FILE${NC}"
+echo -e "${YELLOW}Full report saved to: $INFO_FILE${NC}"
 echo -e "${CYAN}=====================================================${NC}"
 echo -e "${CYAN}      ByteRoot VPN - Dev. Eng Abdelrahman Rabie | Telegram: @PacketBreaker${NC}"
 echo -e "${CYAN}=====================================================${NC}"
-echo -e "${GREEN}للدخول للوحة التحكم في أي وقت اكتب الأمر: byteroot${NC}"
+echo -e "${GREEN}Type 'byteroot' anytime to open the management panel.${NC}"
 sleep 2
 /usr/local/bin/byteroot
