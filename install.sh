@@ -164,9 +164,80 @@ chmod +x /etc/letsencrypt/renewal-hooks/deploy/byteroot-reload.sh
 
 # ---------------------------------------------------------------
 # 6) Install Xray-core (Vmess / Vless / Trojan) + Stats API
+#    Robust install: tries the official script first, then falls back
+#    to a direct GitHub release download (bypasses GitHub API rate
+#    limiting, which is a common real-world cause of silent install
+#    failures -> permanently "failed" xray service).
 # ---------------------------------------------------------------
 echo -e "${CYAN}[+] Installing Xray-core ...${NC}"
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+
+install_xray_official() {
+  bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install >/tmp/xray_install.log 2>&1
+}
+
+install_xray_fallback() {
+  echo -e "${YELLOW}[!] Official installer unavailable or failed (often due to GitHub API rate limits). Falling back to direct release download...${NC}"
+  case "$ARCH_RAW" in
+    x86_64|amd64)  XRAY_ASSET="Xray-linux-64.zip" ;;
+    aarch64|arm64) XRAY_ASSET="Xray-linux-arm64-v8a.zip" ;;
+    *) echo -e "${RED}[!] Unsupported architecture for fallback install: $ARCH_RAW${NC}"; return 1 ;;
+  esac
+
+  # Resolve the latest release tag WITHOUT hitting the GitHub API (avoids rate limiting):
+  # the /releases/latest URL 302-redirects to /releases/tag/<version>
+  XRAY_TAG=$(curl -s -o /dev/null -w '%{redirect_url}' https://github.com/XTLS/Xray-core/releases/latest | sed 's#.*/tag/##')
+  [ -z "$XRAY_TAG" ] && XRAY_TAG="v26.3.27"   # last-known-good pinned fallback if redirect resolution fails too
+
+  echo -e "${CYAN}[i] Installing Xray-core $XRAY_TAG ($XRAY_ASSET)${NC}"
+  TMP_XRAY=$(mktemp -d)
+  if ! curl -fsSL -o "$TMP_XRAY/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_TAG/$XRAY_ASSET"; then
+    echo -e "${RED}[!] Fallback download failed too. Check network/firewall access to github.com.${NC}"
+    return 1
+  fi
+
+  unzip -o -q "$TMP_XRAY/xray.zip" -d "$TMP_XRAY"
+  install -m 755 "$TMP_XRAY/xray" /usr/local/bin/xray
+  mkdir -p /usr/local/share/xray /usr/local/etc/xray
+  cp -f "$TMP_XRAY/geoip.dat" "$TMP_XRAY/geosite.dat" /usr/local/share/xray/ 2>/dev/null || true
+  rm -rf "$TMP_XRAY"
+
+  id xray &>/dev/null || useradd -r -s /usr/sbin/nologin xray 2>/dev/null || true
+  mkdir -p /var/log/xray
+  chown -R xray:xray /var/log/xray /usr/local/etc/xray 2>/dev/null || true
+
+  cat > /etc/systemd/system/xray.service <<'XSVC'
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/xtls
+After=network.target nss-lookup.target
+
+[Service]
+User=root
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+XSVC
+  systemctl daemon-reload
+}
+
+if install_xray_official && command -v xray >/dev/null 2>&1 && xray version >/dev/null 2>&1; then
+  echo -e "${GREEN}[✓] Xray-core installed via the official installer.${NC}"
+else
+  install_xray_fallback
+fi
+
+if ! command -v xray >/dev/null 2>&1 || ! xray version >/dev/null 2>&1; then
+  echo -e "${RED}[!] Xray-core installation failed completely. Vmess/Vless/Trojan will NOT work.${NC}"
+  echo -e "${RED}    Check /tmp/xray_install.log and your server's outbound access to github.com.${NC}"
+fi
 
 UUID_VMESS=$(cat /proc/sys/kernel/random/uuid)
 UUID_VLESS=$(cat /proc/sys/kernel/random/uuid)
@@ -178,8 +249,7 @@ cat > /usr/local/etc/xray/config.json <<EOF
   "log": { "loglevel": "warning" },
   "api": {
     "tag": "api",
-    "listen": "127.0.0.1:10085",
-    "services": ["StatsService"]
+    "services": ["HandlerService", "StatsService"]
   },
   "stats": {},
   "policy": {
@@ -187,6 +257,13 @@ cat > /usr/local/etc/xray/config.json <<EOF
     "system": { "statsInboundUplink": true, "statsInboundDownlink": true }
   },
   "inbounds": [
+    {
+      "tag": "api-in",
+      "listen": "127.0.0.1",
+      "port": 10085,
+      "protocol": "dokodemo-door",
+      "settings": { "address": "127.0.0.1" }
+    },
     {
       "tag": "vmess-ws",
       "listen": "127.0.0.1",
@@ -221,12 +298,34 @@ cat > /usr/local/etc/xray/config.json <<EOF
       }
     }
   ],
-  "outbounds": [ { "protocol": "freedom" } ]
+  "outbounds": [ { "protocol": "freedom" } ],
+  "routing": {
+    "rules": [
+      { "type": "field", "inboundTag": ["api-in"], "outboundTag": "api" }
+    ]
+  }
 }
 EOF
 
-systemctl enable xray
+systemctl enable xray >/dev/null 2>&1
+
+echo -e "${CYAN}[+] Validating Xray configuration ...${NC}"
+if /usr/local/bin/xray run -test -format json -config /usr/local/etc/xray/config.json 2>&1 | tee /tmp/xray_test.log | grep -q "Configuration OK"; then
+  echo -e "${GREEN}[✓] Xray configuration is valid.${NC}"
+else
+  echo -e "${RED}[!] Xray configuration test FAILED. Details:${NC}"
+  cat /tmp/xray_test.log
+fi
+
 systemctl restart xray
+sleep 1
+if systemctl is-active --quiet xray; then
+  echo -e "${GREEN}[✓] Xray service is running.${NC}"
+else
+  echo -e "${RED}[!] Xray service FAILED to start. Diagnostic output:${NC}"
+  systemctl status xray --no-pager -l | tail -15
+  journalctl -u xray -n 20 --no-pager
+fi
 
 {
 echo ""
@@ -596,9 +695,15 @@ for proto in vmess vless trojan; do
     if [ "$expired" == "1" ] || [ "$overquota" == "1" ]; then
       jq --arg tag "$tag" --arg id "$cred" \
         '(.inbounds[] | select(.tag==$tag) | .settings.clients) |= map(select((.id // "") != $id and (.password // "") != $id))' \
-        "$XRAY_CONFIG" > /tmp/br_xray.json && mv /tmp/br_xray.json "$XRAY_CONFIG"
-      NEED_RESTART=1
-      logger "ByteRoot: $proto account $name REMOVED (expired=$expired overquota=$overquota)"
+        "$XRAY_CONFIG" > /tmp/br_xray.json
+      if /usr/local/bin/xray run -test -format json -config /tmp/br_xray.json >/dev/null 2>&1; then
+        mv /tmp/br_xray.json "$XRAY_CONFIG"
+        NEED_RESTART=1
+        logger "ByteRoot: $proto account $name REMOVED (expired=$expired overquota=$overquota)"
+      else
+        logger "ByteRoot: FAILED to remove $proto account $name - resulting config invalid, kept as-is"
+        rm -f /tmp/br_xray.json
+      fi
       echo "$name|$cred|$type|$maxconn|$quota|$expiry|$created|removed" >> "$tmp"
     else
       echo "$name|$cred|$type|$maxconn|$quota|$expiry|$created|$status" >> "$tmp"
@@ -662,7 +767,30 @@ INFO_FILE=/root/byteroot-info.txt
 RED='\e[91m'; GREEN='\e[92m'; YELLOW='\e[93m'; CYAN='\e[96m'; MAGENTA='\e[95m'; BOLD='\e[1m'; NC='\e[0m'
 
 pause(){ read -rp $'\n'"Press Enter to go back..." _; }
-count_db(){ [ -f "$1" ] && grep -vc '^[[:space:]]*$' "$1" 2>/dev/null || echo 0; }
+count_db(){ [ -f "$1" ] && { grep -vc '^[[:space:]]*$' "$1" 2>/dev/null || true; } || echo 0; }
+
+# Validate a candidate xray config before applying it; refuses to apply
+# (and keeps the previous working config) if it doesn't pass "xray run -test".
+apply_xray_config(){
+  local candidate="$1"
+  if /usr/local/bin/xray run -test -format json -config "$candidate" >/tmp/xray_test.log 2>&1; then
+    mv "$candidate" "$XRAY_CONFIG"
+    systemctl restart xray
+    sleep 1
+    if systemctl is-active --quiet xray; then
+      return 0
+    else
+      echo -e "${RED}Xray failed to start after this change. Recent log:${NC}"
+      journalctl -u xray -n 15 --no-pager
+      return 1
+    fi
+  else
+    echo -e "${RED}Change rejected: invalid Xray configuration, previous config kept.${NC}"
+    cat /tmp/xray_test.log
+    rm -f "$candidate"
+    return 1
+  fi
+}
 
 online_ssh_count(){
   ss -tn state established 2>/dev/null | awk '{print $4}' | grep -E ':(22|442|8080)$' | wc -l
@@ -845,8 +973,8 @@ create_xray_account(){
   tmp=$(mktemp)
   jq --arg tag "$tag" --argjson c "$client" \
     '(.inbounds[] | select(.tag==$tag) | .settings.clients) += [$c]' \
-    "$XRAY_CONFIG" > "$tmp" && mv "$tmp" "$XRAY_CONFIG"
-  systemctl restart xray
+    "$XRAY_CONFIG" > "$tmp"
+  if ! apply_xray_config "$tmp"; then pause; return; fi
 
   expiry="-"
   [ "$DAYS" != "0" ] && expiry=$(date -d "+$DAYS days" +%Y-%m-%d)
@@ -940,8 +1068,8 @@ delete_xray_account(){
   tmp=$(mktemp)
   jq --arg tag "$tag" --arg id "$cred" \
     '(.inbounds[] | select(.tag==$tag) | .settings.clients) |= map(select((.id // "") != $id and (.password // "") != $id))' \
-    "$XRAY_CONFIG" > "$tmp" && mv "$tmp" "$XRAY_CONFIG"
-  systemctl restart xray
+    "$XRAY_CONFIG" > "$tmp"
+  apply_xray_config "$tmp"
   sed -i "/^$name|/d" "$db"
   echo -e "${GREEN}Account deleted${NC}"; pause
 }
