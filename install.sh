@@ -698,6 +698,7 @@ for proto in vmess vless trojan; do
         "$XRAY_CONFIG" > /tmp/br_xray.json
       if /usr/local/bin/xray run -test -format json -config /tmp/br_xray.json >/dev/null 2>&1; then
         mv /tmp/br_xray.json "$XRAY_CONFIG"
+        chmod 644 "$XRAY_CONFIG"
         NEED_RESTART=1
         logger "ByteRoot: $proto account $name REMOVED (expired=$expired overquota=$overquota)"
       else
@@ -775,6 +776,7 @@ apply_xray_config(){
   local candidate="$1"
   if /usr/local/bin/xray run -test -format json -config "$candidate" >/tmp/xray_test.log 2>&1; then
     mv "$candidate" "$XRAY_CONFIG"
+    chmod 644 "$XRAY_CONFIG"
     systemctl restart xray
     sleep 1
     if systemctl is-active --quiet xray; then
