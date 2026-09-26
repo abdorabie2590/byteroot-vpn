@@ -1,55 +1,122 @@
+<div align="center">
+
 # ByteRoot VPN
 
-سكربت تثبيت وإدارة سيرفر VPN متعدد البروتوكولات، بلوحة تحكم احترافية (Terminal Panel) لإدارة الحسابات، مراقبة الاستهلاك، والقيود.
+<a href="https://github.com/abdorabie2590/byteroot-vpn">
+  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=24&duration=2800&pause=700&color=7C3AED&center=true&vCenter=true&width=760&lines=Multi-protocol+VPN+server+manager;Ubuntu+22%E2%80%9326+%7C+Debian+10%2B;Built+for+x86_64+and+ARM64+VPS" alt="Animated ByteRoot VPN tagline" />
+</a>
 
-**Dev. Eng Abdelrahman Rabie**
-**Telegram:** [@PacketBreaker](https://t.me/PacketBreaker)
+<br />
+
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-22%E2%80%9326-E95420?logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![Debian](https://img.shields.io/badge/Debian-10%2B-A81D33?logo=debian&logoColor=white)](https://www.debian.org/)
+[![Architecture](https://img.shields.io/badge/CPU-x86__64%20%7C%20ARM64-2EA44F?logo=linux&logoColor=white)](#supported-operating-systems-and-architectures)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**A multi-protocol VPN installation and management script with an interactive terminal control panel.**
+
+Created by **Dev. Eng Abdelrahman Rabie**  
+Telegram: [@PacketBreaker](https://t.me/PacketBreaker)
+
+</div>
 
 ---
 
-## المميزات (Features)
+## At a glance
 
-### البروتوكولات المدعومة
-| البروتوكول | المنفذ |
+```mermaid
+flowchart LR
+    VPS["☁️ VPS provider"] --> OS{"🖥️ Supported OS"}
+    OS --> UB["🟠 Ubuntu 22–26"]
+    OS --> DEB["🔴 Debian 10+"]
+    UB --> ARCH{"⚙️ CPU architecture"}
+    DEB --> ARCH
+    ARCH --> X["x86_64 / AMD64"]
+    ARCH --> A["ARM64 / AArch64"]
+    X --> BR["🚀 ByteRoot VPN"]
+    A --> BR
+    BR --> PANEL["🎛️ byteroot terminal panel"]
+    BR --> PROTO["🔐 SSH · Vmess · Vless · Trojan"]
+
+    classDef ubuntu fill:#E95420,color:#fff,stroke:#9c3413,stroke-width:2px;
+    classDef debian fill:#A81D33,color:#fff,stroke:#741326,stroke-width:2px;
+    classDef main fill:#6D28D9,color:#fff,stroke:#4C1D95,stroke-width:3px;
+    class UB ubuntu;
+    class DEB debian;
+    class BR,PANEL,PROTO main;
+```
+
+## Features
+
+### Supported protocols and ports
+
+| Protocol / service | Port(s) | Notes |
+|---|---:|---|
+| OpenSSH | 22 | Standard SSH access |
+| SSH WebSocket | 80, 8080 | WebSocket transport |
+| SSH Stunnel (SSL/TLS) | 442, 443 | Port 443 is shared through HAProxy |
+| BadVPN UDPGW | 7100–7900 | UDP gateway range |
+| Nginx | 81 | Web server / service endpoint |
+| Vmess WebSocket TLS | 443 | Path: `/vmess` |
+| Vless WebSocket TLS | 443 | Path: `/vless` |
+| Trojan WebSocket TLS | 443 | Path: `/trojan` |
+| Vmess WebSocket (No TLS) | 80 | Path: `/vmess` |
+| Vless WebSocket (No TLS) | 80 | Path: `/vless` |
+| Trojan WebSocket (No TLS) | 80 | Path: `/trojan` |
+
+### How port 443 is shared
+
+Port **443** is shared by **Stunnel (SSH-SSL)** and **Nginx (TLS WebSocket protocols)** through **HAProxy**, which routes traffic using the TLS SNI value without decrypting the connection:
+
+- **SNI matches the configured domain** → Nginx (WebSocket protocols)
+- **No SNI or a different SNI** → Stunnel (SSH-SSL)
+
+> **SSH-SSL client note:** In clients such as HTTP Injector or KPN Tunnel, leave the SNI/SAN field blank or enter a value other than your configured domain.
+
+### Terminal control panel: `byteroot`
+
+- Colorful live banner showing the date, time, domain, operating system, and CPU architecture
+- Live count of currently connected SSH users
+- Counters for SSH, Vmess, Vless, and Trojan accounts
+- Create unlimited or restricted accounts with connection, data, and expiry limits
+- Track per-account traffic usage in GB
+- Enable, lock, or delete accounts
+- Check service status and restart services individually or all at once
+- Clear caches and system logs
+- Cron-based enforcement to lock or remove expired accounts and accounts that exceed their data allowance
+
+## Supported operating systems and architectures
+
+### Operating systems
+
+| Distribution | Supported versions |
 |---|---|
-| OpenSSH | 22 |
-| SSH Websocket | 80 , 8080 |
-| SSH Stunnel (SSL/TLS) | 442 (مباشر) + 443 (مشترك عبر HAProxy) |
-| Badvpn UDPGW | 7100–7900 |
-| Nginx | 81 |
-| Vmess WS TLS | 443 (`/vmess`) |
-| Vless WS TLS | 443 (`/vless`) |
-| Trojan WS TLS | 443 (`/trojan`) |
-| Vmess WS NoTLS | 80 (`/vmess`) |
-| Vless WS NoTLS | 80 (`/vless`) |
-| Trojan WS NoTLS | 80 (`/trojan`) |
+| Ubuntu | **22.04 through 26** |
+| Debian | **10 and later** |
 
-### مشاركة المنفذ 443
-المنفذ 443 مشترك فعليًا بين **Stunnel (SSH-SSL)** و **Nginx (Vmess/Vless/Trojan TLS)** عن طريق **HAProxy** الذي يفحص TLS SNI بدون فك تشفير:
-- SNI = الدومين المُدخَل → Nginx (بروتوكولات الويب سوكت)
-- بدون SNI / SNI مختلف → Stunnel (SSH-SSL)
+The installer is intended for the Ubuntu and Debian release ranges listed above. Compatibility on a particular VPS also depends on the provider's image, available packages, and system configuration.
 
-> **مهم:** في تطبيقات SSH-SSL (HTTP Injector, KPN Tunnel, ...) اترك خانة SNI/SAN فارغة أو اكتب أي نص غير الدومين.
+### CPU architectures
 
-### لوحة التحكم (`byteroot`)
-- بانر احترافي ملوّن بالوقت والتاريخ اللحظي، الدومين، النظام والمعمارية
-- عداد المتصلين الآن على SSH لحظيًا
-- عداد حسابات SSH / Vmess / Vless / Trojan
-- إنشاء حسابات **حرة Unlimited** أو **محدودة** (عدد اتصالات، باقة GB، أيام صلاحية)
-- مراقبة استهلاك كل حساب بالـ GB
-- تفعيل/قفل/حذف الحسابات
-- حالة كل الخدمات وإعادة تشغيلها (فردي أو جماعي)
-- تنظيف الكاش وسجلات النظام
-- إنفاذ تلقائي (Cron) لقفل/حذف الحسابات المنتهية أو المتجاوزة للباقة
+- **x86_64 / AMD64**
+- **ARM64 / AArch64**, including Oracle Cloud's **Ampere A1** instances
 
-### التوافق
-- **الأنظمة:** Ubuntu 22 → 26 , Debian 10 وما بعده
-- **المعماريات:** x86_64 و arm64 (يشمل **Oracle Cloud A1 Always Free / Ampere**)
-- **السيرفرات المجرّبة:** DigitalOcean, Hostinger, Contabo, Oracle Cloud
+ByteRoot VPN is designed to run on these two major VPS CPU architectures; it is **not limited to one hosting company**. Other CPU architectures are not claimed as supported unless separately tested.
+
+### VPS providers
+
+The project identifies the following providers as tested environments:
+
+- [DigitalOcean](https://www.digitalocean.com/)
+- [Hostinger](https://www.hostinger.com/)
+- [Contabo](https://contabo.com/)
+- [Oracle Cloud Infrastructure](https://www.oracle.com/cloud/)
+
+It may also be usable on compatible VPS instances from other popular providers, including [Hetzner](https://www.hetzner.com/), [Vultr](https://www.vultr.com/), [Akamai Connected Cloud (Linode)](https://www.linode.com/), [OVHcloud](https://www.ovhcloud.com/), [Amazon Web Services](https://aws.amazon.com/), [Google Cloud](https://cloud.google.com/), and [Microsoft Azure](https://azure.microsoft.com/), provided the instance uses a supported Ubuntu/Debian release and x86_64 or ARM64 architecture. These additional providers are **not listed as tested by this project**.
 
 ---
 
-## التثبيت (Installation)
+## Installation
 
 ```bash
 git clone https://github.com/abdorabie2590/byteroot-vpn.git
@@ -58,46 +125,39 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-هيُطلب منك إدخال الدومين الخاص بيك، والسكربت هيتأكد إنه موجّه (A Record) على IP السيرفر، ويصدر شهادة SSL تلقائيًا عبر Let's Encrypt.
+During installation, you will be asked to enter your domain. The installer checks that its DNS A record points to the server's IP address and automatically requests an SSL certificate through Let's Encrypt.
 
-بعد التثبيت، لوحة التحكم بتفتح تلقائيًا، وترجعلها في أي وقت بكتابة:
+After installation, the control panel opens automatically. You can return to it at any time by running:
+
 ```bash
 byteroot
 ```
 
----
+## Project structure
 
-## هيكل المشروع (Project Structure)
-
-```
+```text
 byteroot-vpn/
-├── install.sh              # السكربت الرئيسي (يقوم بكل التثبيت والإعداد)
+├── install.sh              # Main self-contained installation and setup script
 ├── scripts/
-│   ├── byteroot-menu.sh    # نسخة مرجعية من لوحة التحكم (نفس الملف يُنشأ في /usr/local/bin/byteroot)
-│   ├── enforce.sh          # نسخة مرجعية من سكربت إنفاذ الصلاحية/الباقات (Cron كل 5 دقائق)
-│   └── conn_limit.sh       # نسخة مرجعية من سكربت تحديد الاتصالات المتزامنة (Cron كل دقيقة)
+│   ├── byteroot-menu.sh    # Reference copy of the terminal control panel
+│   ├── enforce.sh          # Reference copy of expiry/data-limit enforcement (cron: every 5 minutes)
+│   └── conn_limit.sh       # Reference copy of concurrent-connection limiter (cron: every minute)
 ├── LICENSE
 └── README.md
 ```
 
-> **ملاحظة:** `install.sh` ملف متكامل ومستقل بذاته (self-contained) — يقوم بإنشاء كل الملفات المذكورة أعلاه مباشرة على السيرفر أثناء التثبيت. الملفات الموجودة داخل `scripts/` هي نسخ مرجعية لمراجعة/تعديل الكود قبل الرفع فقط.
+> **Note:** `install.sh` is self-contained and creates the files listed above directly on the server during installation. The files in `scripts/` are reference copies for reviewing or editing the code before upload.
 
----
+## Known limitations
 
-## القيود المعروفة (Known Limitations)
+1. SSH data usage in GB is measured with `iptables` and counts **outbound traffic from the server only**. It is a common practical approximation, not a fully accurate measure of both upload and download traffic.
+2. Connection limits for Vmess, Vless, and Trojan accounts are currently informational and are not automatically enforced. SSH connection limits are enforced through PAM and cron.
+3. Expired accounts and accounts that exceed their data allowance are locked or removed by a cron job every five minutes; enforcement is not instantaneous.
 
-1. **حساب استهلاك SSH بالـ GB** يعتمد على `iptables` ويحسب حركة **الخروج (Download) فقط** من السيرفر — تقريب عملي شائع، وليس دقيقًا 100% لحركة الرفع.
-2. **حد عدد الاتصالات لحسابات Vmess/Vless/Trojan** معلوماتي فقط حاليًا وغير منفَّذ تلقائيًا (بعكس SSH الذي يُنفَّذ فعليًا عبر PAM + Cron).
-3. قفل الحسابات المنتهية/المتجاوزة للباقة يتم عبر Cron كل 5 دقائق (ليس لحظيًا فوريًا).
+## Support
 
----
+For help or questions, contact us on Telegram: [@PacketBreaker](https://t.me/PacketBreaker)
 
-## الدعم (Support)
+## License
 
-للمساعدة أو الاستفسارات، تواصل عبر تيليجرام: [@PacketBreaker](https://t.me/PacketBreaker)
-
----
-
-## الترخيص (License)
-
-هذا المشروع مرخّص تحت [MIT License](LICENSE) — جميع الحقوق محفوظة لـ **Dev. Eng Abdelrahman Rabie**.
+This project is licensed under the [MIT License](LICENSE). All rights reserved to **Dev. Eng Abdelrahman Rabie**.
